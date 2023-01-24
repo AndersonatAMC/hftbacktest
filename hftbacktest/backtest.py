@@ -131,8 +131,6 @@ hbt_cls_spec = [
     ('lot_size', float64),
     ('best_bid_tick', int64),
     ('best_ask_tick', int64),
-    ('low_bid_tick', int64),
-    ('high_ask_tick', int64),
     ('run', boolean),
     ('maker_fee', float64),
     ('taker_fee', float64),
@@ -152,7 +150,6 @@ class HftBacktest:
                  order_latency,
                  asset_type,
                  queue_model,
-                 snapshot=None,
                  start_row=0,
                  start_position=0,
                  start_balance=0,
@@ -174,8 +171,6 @@ class HftBacktest:
         self.lot_size = lot_size
         self.best_bid_tick = INVALID_MIN
         self.best_ask_tick = INVALID_MAX
-        self.low_bid_tick = INVALID_MAX
-        self.high_ask_tick = INVALID_MIN
         self.run = True
         self.maker_fee = maker_fee
         self.taker_fee = taker_fee
@@ -185,34 +180,8 @@ class HftBacktest:
         self.queue_model = queue_model
         self.last_trade = np.full(data.shape[1], np.nan, np.float64)
         self.user_data = np.full((20, data.shape[1]), np.nan, np.float64)
-        if snapshot is not None:
-            self.__load_snapshot(snapshot)
 
-    def __load_snapshot(self, data):
-        self.best_bid_tick = INVALID_MIN
-        self.best_ask_tick = INVALID_MAX
-        self.low_bid_tick = INVALID_MAX
-        self.high_ask_tick = INVALID_MIN
-        self.bid_depth.clear()
-        self.ask_depth.clear()
-        best_bid = True
-        best_ask = True
-        for row_num in range(len(data)):
-            row = data[row_num]
-            price_tick = round(row[COL_PRICE] / self.tick_size)
-            qty = row[COL_QTY]
-            if row[COL_SIDE] == BUY:
-                if best_bid:
-                    self.best_bid_tick = price_tick
-                    best_bid = False
-                self.low_bid_tick = price_tick
-                self.bid_depth[price_tick] = qty
-            elif row[COL_SIDE] == SELL:
-                if best_ask:
-                    self.best_ask_tick = price_tick
-                    best_ask = False
-                self.high_ask_tick = price_tick
-                self.ask_depth[price_tick] = qty
+
 
     def __fill(self, order, timestamp, limit, exec_price_tick=0):
         order.limit = limit
@@ -407,90 +376,7 @@ class HftBacktest:
             row = self.data[self.row_num]
             exch_timestamp = next_exch_timestamp
             local_timestamp = next_local_timestamp
-
-            # Order fill logic needs valid exch_timestamp.
-            # And market depth also needs valid local_timestamp as it needs to be received by local.
-            if exch_timestamp != -1 and local_timestamp != -1:
-                if row[COL_EVENT] == DEPTH_CLEAR_EVENT:
-                    # To apply market depth snapshot, refresh the market depth.
-                    clear_upto = round(row[COL_PRICE] / self.tick_size)
-                    if row[COL_SIDE] == BUY:
-                        if self.best_bid_tick != INVALID_MIN:
-                            for t in range(self.best_bid_tick, clear_upto - 1, -1):
-                                if t in self.ask_depth:
-                                    del self.ask_depth[t]
-                    elif row[COL_SIDE] == SELL:
-                        if self.best_ask_tick != INVALID_MAX:
-                            for t in range(self.best_ask_tick, clear_upto + 1):
-                                if t in self.ask_depth:
-                                    del self.ask_depth[t]
-                    else:
-                        self.bid_depth.clear()
-                        self.ask_depth.clear()
-                elif row[COL_EVENT] == DEPTH_EVENT or row[COL_EVENT] == DEPTH_SNAPSHOT_EVENT:
-                    # Update the market depth.
-                    price_tick = round(row[COL_PRICE] / self.tick_size)
-                    qty = row[COL_QTY]
-                    if row[COL_SIDE] == BUY:
-                        prev_qty = self.bid_depth.get(price_tick, 0)
-                        self.bid_depth[price_tick] = qty
-                        # Update a user order's queue position.
-                        if price_tick in self.buy_orders:
-                            for order in self.buy_orders[price_tick].values():
-                                self.queue_model.depth(order, prev_qty, qty, self)
-                        # Update the best bid and the best ask.
-                        if round(qty / self.lot_size) == 0:
-                            del self.bid_depth[price_tick]
-                            if price_tick == self.best_bid_tick:
-                                self.best_bid_tick = depth_below(self.bid_depth, self.best_bid_tick, self.low_bid_tick)
-                        else:
-                            if price_tick > self.best_bid_tick:
-                                # Not sure if it's okay to fill orders by the best bid/ask without trade. But, without it
-                                # there are active orders even if they cross the best bid/ask and the backtest gets messy.
-                                # As this backtest assumes no market impact it would be fine, but it's better to compare
-                                # with the actual trading result.
-
-                                # Fill sell orders placed in the bid-side.
-                                if self.best_bid_tick != INVALID_MIN and row[COL_EVENT] == DEPTH_EVENT:
-                                    for t in range(self.best_bid_tick + 1, price_tick + 1):
-                                        if t in self.sell_orders:
-                                            for order in list(self.sell_orders[t].values()):
-                                                self.__fill(order, exch_timestamp, True)
-                                self.best_bid_tick = price_tick
-                                if self.best_bid_tick >= self.best_ask_tick:
-                                    self.best_ask_tick = depth_above(self.ask_depth, self.best_bid_tick, self.high_ask_tick)
-                            if price_tick < self.low_bid_tick:
-                                self.low_bid_tick = price_tick
-                    else:
-                        prev_qty = self.ask_depth.get(price_tick, 0)
-                        self.ask_depth[price_tick] = qty
-                        # Update a user order's queue position.
-                        if price_tick in self.sell_orders:
-                            for order in self.sell_orders[price_tick].values():
-                                self.queue_model.depth(order, prev_qty, qty, self)
-                        # Update the best bid and the best ask.
-                        if round(qty / self.lot_size) == 0:
-                            del self.ask_depth[price_tick]
-                            if price_tick == self.best_ask_tick:
-                                self.best_ask_tick = depth_above(self.ask_depth, self.best_ask_tick, self.high_ask_tick)
-                        else:
-                            if price_tick < self.best_ask_tick:
-                                # Not sure if it's okay to fill orders by the best bid/ask without trade. But, without it
-                                # there are active orders even if they cross the best bid/ask and the backtest gets messy.
-                                # As this backtest assumes no market impact it would be fine, but it's better to compare
-                                # with the actual trading result.
-
-                                # Fill buy orders placed in the ask-side.
-                                if self.best_ask_tick != INVALID_MAX and row[COL_EVENT] == DEPTH_EVENT:
-                                    for t in range(price_tick, self.best_ask_tick):
-                                        if t in self.buy_orders:
-                                            for order in list(self.buy_orders[t].values()):
-                                                self.__fill(order, exch_timestamp, True)
-                                self.best_ask_tick = price_tick
-                                if self.best_ask_tick <= self.best_bid_tick:
-                                    self.best_bid_tick = depth_below(self.bid_depth, self.best_ask_tick, self.low_bid_tick)
-                            if price_tick > self.high_ask_tick:
-                                self.high_ask_tick = price_tick
+            
             # Order fill logic needs valid exch_timestamp.
             if exch_timestamp != -1:
                 if row[COL_EVENT] == TRADE_EVENT:
@@ -499,6 +385,8 @@ class HftBacktest:
                     # considered to be small enough not to make any market impact.
                     price_tick = round(row[COL_PRICE] / self.tick_size)
                     qty = row[COL_QTY]
+                    self.best_bid_tick = self.price_tick - self.tick_size
+                    self.best_ask_tick = self.price_tick + self.tick_size
                     # This side is a trade initiator's side.
                     if row[COL_SIDE] == BUY:
                         if self.best_bid_tick != INVALID_MIN:
