@@ -385,8 +385,8 @@ class HftBacktest:
                     # considered to be small enough not to make any market impact.
                     price_tick = round(row[COL_PRICE] / self.tick_size)
                     qty = row[COL_QTY]
-                    self.best_bid_tick = self.price_tick - self.tick_size
-                    self.best_ask_tick = self.price_tick + self.tick_size
+                    self.best_bid_tick = price_tick - 1
+                    self.best_ask_tick = price_tick + 1
                     # This side is a trade initiator's side.
                     if row[COL_SIDE] == BUY:
                         if self.best_bid_tick != INVALID_MIN:

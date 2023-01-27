@@ -5,7 +5,10 @@ from numba import float64, int64
 from matplotlib import pyplot
 import pandas as pd
 import numpy as np
-
+# import hvplot 
+# import hvplot.pandas 
+# from holoviews.operation import decimate
+# hvplot.extension('bokeh')
 
 @jitclass([
     ('timestamp', ListType(int64)),
@@ -158,3 +161,13 @@ class Stat:
         ax2.set_ylabel('Qty')
         ax3.set_ylabel('Value')
         ax2.grid()
+    
+    # def decimate_plot(self, capital):
+
+    #     mid = pd.Series(self.mid, index=self.datetime())
+
+    #     ax1 = decimate(((mid / mid[0] - 1) * 100).hvplot.scatter(label='Trading asset', color='gray', size=0.5), max_samples=5000)
+    #     ax2 = decimate((self.equity() / capital * 100).hvplot.scatter(label='Strategy incl. fee', color='blue', size=0.5), max_samples=5000)
+    #     ax3 = decimate((self.equity(include_fee=False) / capital * 100).hvplot.scatter(label='Strategy excl. fee', color='orange', size=0.5), max_samples=5000)
+    #     overlay = (ax1*ax2*ax3).opts(title='Equity', ylabel='Cumulative Returns (%)', show_grid=True, show_legend=True)
+    #     return overlay
