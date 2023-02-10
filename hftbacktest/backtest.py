@@ -390,32 +390,22 @@ class HftBacktest:
                     # This side is a trade initiator's side.
                     if row[COL_SIDE] == BUY:
                         if self.best_bid_tick != INVALID_MIN:
-                            for t in range(self.best_bid_tick + 1, price_tick + 1):
+                            for t in range(price_tick - 10, price_tick + 1):
                                 if t in self.sell_orders:
                                     for order in list(self.sell_orders[t].values()):
                                         # Only if a user order is active.
                                         if order.exch_status == NEW:
-                                            if order.price_tick < price_tick:
-                                                self.__fill(order, exch_timestamp, True)
-                                            elif order.price_tick == price_tick:
-                                                # Update the order's queue position.
-                                                self.queue_model.trade(order, qty, self)
-                                                if self.queue_model.is_filled(order, self):
-                                                    self.__fill(order, exch_timestamp, True)
+                                            self.__fill(order, exch_timestamp, True)
+
                     else:
                         if self.best_ask_tick != INVALID_MAX:
-                            for t in range(self.best_ask_tick - 1, price_tick - 1, -1):
+                            for t in range(price_tick + 10, price_tick - 1, -1):
                                 if t in self.buy_orders:
                                     for order in list(self.buy_orders[t].values()):
                                         # Only if a user order is active.
                                         if order.exch_status == NEW:
-                                            if order.price_tick > price_tick:
-                                                self.__fill(order, exch_timestamp, True)
-                                            elif order.price_tick == price_tick:
-                                                # Update the order's queue position.
-                                                self.queue_model.trade(order, qty, self)
-                                                if self.queue_model.is_filled(order, self):
-                                                    self.__fill(order, exch_timestamp, True)
+                                            self.__fill(order, exch_timestamp, True)
+                                       
             # Only row with the valid local_timestamp will be received by local.
             if local_timestamp != -1:
                 if row[COL_EVENT] == TRADE_EVENT:
